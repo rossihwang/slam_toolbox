@@ -164,6 +164,8 @@ protected:
   ProcessType processor_type_;
   std::unique_ptr<karto::Pose2> process_near_pose_;
   tf2::Transform reprocessing_transform_;
+  geometry_msgs::msg::Pose last_map_update_pose_;
+  int stop_map_update_count_;
 
   // pluginlib
   pluginlib::ClassLoader<karto::ScanSolver> solver_loader_;

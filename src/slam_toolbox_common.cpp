@@ -161,6 +161,16 @@ void SlamToolbox::setParams()
         RCUTILS_LOG_SEVERITY_DEBUG);
   }
 
+  last_map_update_pose_.position.x = 0;
+  last_map_update_pose_.position.y = 0;
+  last_map_update_pose_.position.z = 0;
+  last_map_update_pose_.orientation.x = 0;
+  last_map_update_pose_.orientation.y = 0;
+  last_map_update_pose_.orientation.z = 0;
+  last_map_update_pose_.orientation.w = 1;
+
+  stop_map_update_count_ = 0;
+
   smapper_->configure(shared_from_this());
   this->declare_parameter("paused_new_measurements");
   this->set_parameter({"paused_new_measurements", false});
@@ -362,6 +372,30 @@ bool SlamToolbox::updateMap()
   if (sst_->get_subscription_count() == 0) {
     return true;
   }
+
+  geometry_msgs::msg::PoseStamped ident, map_pose;
+  ident.header.frame_id = base_frame_;
+  ident.header.stamp = now();
+  tf2::toMsg(tf2::Transform::getIdentity(), ident.pose);
+
+  try {
+    tf_->transform(ident, map_pose, map_frame_);
+    if (last_map_update_pose_.position.x == 0 && last_map_update_pose_.position.y == 0) {
+      RCLCPP_INFO(get_logger(), "Skip pose check for first map update");
+    } else if (abs(last_map_update_pose_.position.x - map_pose.pose.position.x) + abs(last_map_update_pose_.position.y - map_pose.pose.position.y) < 0.05) {
+      ++stop_map_update_count_;
+      if (2 <= stop_map_update_count_) {  // NOTE: Ensure to publish the map at the real final stop.
+        RCLCPP_INFO(get_logger(), "Skip updating the map, due to no motion");
+        return false;
+      }
+    } else {
+      stop_map_update_count_ = 0;
+    }
+    last_map_update_pose_ = map_pose.pose;
+  } catch (tf2::TransformException & e) {
+    RCLCPP_ERROR(get_logger(), "Failed to get current map pose(%s)", e.what());
+  }
+
   boost::mutex::scoped_lock lock(smapper_mutex_);
   OccupancyGrid * occ_grid = smapper_->getOccupancyGrid(resolution_);
   if (!occ_grid) {
